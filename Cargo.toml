@@ -1,0 +1,27 @@
+[package]
+name = "yggdrasil"
+version = "0.1.0"
+edition = "2021"
+description = "Web server aggregating all personal projects"
+readme = "README.md"
+
+exclude = [ ".github" ]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+#[patch."https://github.com/eta077/heimdall"]
+#heimdall = { path = "../heimdall" }
+
+[dependencies]
+axum = { version = "0.6.12", features = ["ws"] }
+heimdall = { version = "*", git = "https://github.com/eta077/heimdall.git" }
+serde_json = "1.0.96"
+tokio = { version = "1.26.0", features = ["full"] }
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
+
+[features]
+default = ["debug"]
+debug = []
+production = []
+
