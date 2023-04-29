@@ -1,23 +1,30 @@
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{State, WebSocketUpgrade};
-use axum::response::Html;
-use axum::response::IntoResponse;
-use axum::response::Response;
+use axum::extract::WebSocketUpgrade;
+use axum::http::StatusCode;
+use axum::response::*;
 use axum::routing::get;
 use axum::{Router, Server};
+
+use chrono::{NaiveDate, Utc};
+
+use earendel::EarendelState;
 
 use heimdall::{HeimdallServer, HeimdallState};
 
 use tokio::sync::broadcast;
+use tokio::sync::Mutex;
 use tokio::task;
 
 use tracing::trace;
 
 use std::error::Error;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt().init();
+
+    let earendel_state = Arc::new(Mutex::new(None));
 
     let (heimdall_tx, _) = broadcast::channel::<HeimdallState>(1);
 
@@ -34,10 +41,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let router = Router::new()
         .route("/", get(root_get))
+        .route("/earendel.html", get(earendel_get))
+        .route("/earendel.mjs", get(earendel_script_get))
+        .route(
+            "/earendel/apod",
+            get({
+                let shared_state = Arc::clone(&earendel_state);
+                move || earendel_apod(shared_state)
+            }),
+        )
         .route("/heimdall.html", get(heimdall_get))
         .route("/heimdall.mjs", get(heimdall_script_get))
-        .route("/ws/heimdall", get(heimdall_ws))
-        .with_state(heimdall_tx);
+        .route(
+            "/ws/heimdall",
+            get(move |upgrade| heimdall_ws(upgrade, heimdall_tx)),
+        );
 
     let server = Server::bind(&"0.0.0.0:7032".parse()?).serve(router.into_make_service());
     server.await?;
@@ -63,6 +81,41 @@ async fn root_get() -> Html<String> {
     Html(markup)
 }
 
+async fn earendel_get() -> Html<String> {
+    let markup = get_file("earendel.html").await;
+
+    Html(markup)
+}
+
+async fn earendel_script_get() -> Response<String> {
+    let script = get_file("earendel.mjs").await;
+
+    Response::builder()
+        .header("content-type", "application/javascript;charset=utf-8")
+        .body(script)
+        .unwrap()
+}
+
+async fn earendel_apod(
+    state: Arc<Mutex<Option<(NaiveDate, EarendelState)>>>,
+) -> Result<String, StatusCode> {
+    let mut cached_state = state.lock().await;
+
+    // cache is invalidated after UTC date changes
+    let today = Utc::now().date_naive();
+    let new_state = match cached_state.as_ref() {
+        Some((date, apod)) if date == &today => apod.to_owned(),
+        Some(_) | None => earendel::get_apod_image()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    };
+    let payload =
+        serde_json::to_string(&new_state).expect("earendel_apod could not serialize state");
+    *cached_state = Some((today, new_state));
+
+    Ok(payload)
+}
+
 async fn heimdall_get() -> Html<String> {
     let markup = get_file("heimdall.html").await;
 
@@ -80,7 +133,7 @@ async fn heimdall_script_get() -> Response<String> {
 
 async fn heimdall_ws(
     upgrade: WebSocketUpgrade,
-    State(sender): State<broadcast::Sender<HeimdallState>>,
+    sender: broadcast::Sender<HeimdallState>,
 ) -> impl IntoResponse {
     upgrade.on_upgrade(|ws| async { heimdall_stream(ws, sender).await })
 }
