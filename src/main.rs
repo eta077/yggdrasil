@@ -1,9 +1,13 @@
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::WebSocketUpgrade;
-use axum::http::StatusCode;
-use axum::response::*;
+use axum::http::{Response, StatusCode};
+use axum::response::{Form, Html, IntoResponse, Redirect};
 use axum::routing::get;
 use axum::{Router, Server};
+
+use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
+
+use christpoint_kids::{KidsServer, LoginParams};
 
 use chrono::{NaiveDate, Utc};
 
@@ -39,9 +43,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
     heimdall_server.start();
 
+    let kids_server = Arc::new(Mutex::new(KidsServer {}));
+    let kids_key = Key::generate();
+
     let router = Router::new()
         .route("/", get(root_get))
-        .route("/earendel.html", get(earendel_get))
+        .route("/earendel", get(earendel_get))
         .route("/earendel.mjs", get(earendel_script_get))
         .route(
             "/earendel/apod",
@@ -50,12 +57,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 move || earendel_apod(shared_state)
             }),
         )
-        .route("/heimdall.html", get(heimdall_get))
+        .route("/heimdall", get(heimdall_get))
         .route("/heimdall.mjs", get(heimdall_script_get))
         .route(
             "/ws/heimdall",
             get(move |upgrade| heimdall_ws(upgrade, heimdall_tx)),
-        );
+        )
+        .route("/kids", get(kids_get))
+        .route(
+            "/kids/login",
+            get(kids_login_get).post({
+                let shared_state = Arc::clone(&kids_server);
+                move |jar, params| kids_login(shared_state, jar, params)
+            }),
+        )
+        .route("/kids/login.mjs", get(kids_login_script_get))
+        .with_state(kids_key);
 
     let server = Server::bind(&"0.0.0.0:7032".parse()?).serve(router.into_make_service());
     server.await?;
@@ -82,13 +99,13 @@ async fn root_get() -> Html<String> {
 }
 
 async fn earendel_get() -> Html<String> {
-    let markup = get_file("earendel.html").await;
+    let markup = get_file("earendel/earendel.html").await;
 
     Html(markup)
 }
 
 async fn earendel_script_get() -> Response<String> {
-    let script = get_file("earendel.mjs").await;
+    let script = get_file("earendel/earendel.mjs").await;
 
     Response::builder()
         .header("content-type", "application/javascript;charset=utf-8")
@@ -117,13 +134,13 @@ async fn earendel_apod(
 }
 
 async fn heimdall_get() -> Html<String> {
-    let markup = get_file("heimdall.html").await;
+    let markup = get_file("heimdall/heimdall.html").await;
 
     Html(markup)
 }
 
 async fn heimdall_script_get() -> Response<String> {
-    let script = get_file("heimdall.mjs").await;
+    let script = get_file("heimdall/heimdall.mjs").await;
 
     Response::builder()
         .header("content-type", "application/javascript;charset=utf-8")
@@ -151,3 +168,54 @@ async fn heimdall_stream(mut ws: WebSocket, sender: broadcast::Sender<HeimdallSt
         }
     }
 }
+
+async fn kids_get(jar: PrivateCookieJar) -> (StatusCode, Html<String>) {
+    if let Some(id) = jar.get("userId") {
+        let markup = get_file("kids/kids.html").await;
+        (StatusCode::OK, Html(markup))
+    } else {
+        let markup = get_file("kids/unauth.html").await;
+
+        (StatusCode::UNAUTHORIZED, Html(markup))
+    }
+}
+
+async fn kids_login_get() -> Html<String> {
+    let markup = get_file("kids/login.html").await;
+
+    Html(markup)
+}
+
+async fn kids_login_script_get() -> Response<String> {
+    let script = get_file("kids/login.mjs").await;
+
+    Response::builder()
+        .header("content-type", "application/javascript;charset=utf-8")
+        .body(script)
+        .unwrap()
+}
+
+async fn kids_login(
+    kids_server: Arc<Mutex<KidsServer>>,
+    jar: PrivateCookieJar,
+    Form(params): Form<LoginParams>,
+) -> Result<(PrivateCookieJar, Redirect), (StatusCode, String)> {
+    let user = kids_server.lock().await.login(params).map_err(|e| {
+        let text = match e {
+            christpoint_kids::LoginError::InternalError => {
+                String::from("An error occurred during the login process")
+            }
+            christpoint_kids::LoginError::InvalidCredentials => {
+                String::from("Invalid credentials, please try again.")
+            }
+        };
+        (StatusCode::BAD_REQUEST, text)
+    })?;
+    let new_jar = jar.add(Cookie::new("userId", user.id.to_owned()));
+    Ok((new_jar, Redirect::to("/kids")))
+}
+
+// TODO:
+// key loading
+// encrypt email/password before sending?
+//

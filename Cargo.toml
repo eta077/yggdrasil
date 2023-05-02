@@ -9,6 +9,9 @@ exclude = [ ".github" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+#[patch."https://github.com/eta077/christpoint-kids"]
+#earendel = { path = "../christpoint-kids" }
+
 #[patch."https://github.com/eta077/earendel"]
 #earendel = { path = "../earendel" }
 
@@ -17,6 +20,8 @@ exclude = [ ".github" ]
 
 [dependencies]
 axum = { version = "0.6.12", features = ["ws"] }
+axum-extra = { version = "0.7.4", features = ["cookie", "cookie-private"]}
+christpoint-kids = { version = "*", git = "https://github.com/eta077/christpoint-kids.git" }
 chrono = "0.4.24"
 earendel = { version = "*", git = "https://github.com/eta077/earendel.git" }
 heimdall = { version = "*", git = "https://github.com/eta077/heimdall.git" }
