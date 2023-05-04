@@ -10,7 +10,7 @@ exclude = [ ".github" ]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 #[patch."https://github.com/eta077/christpoint-kids"]
-#earendel = { path = "../christpoint-kids" }
+#christpoint-kids = { path = "../christpoint-kids" }
 
 #[patch."https://github.com/eta077/earendel"]
 #earendel = { path = "../earendel" }

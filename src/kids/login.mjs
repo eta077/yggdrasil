@@ -4,25 +4,19 @@ import htm from "https://unpkg.com/htm?module";
 const html = htm.bind(h);
 
 async function submitLogin(event) {
-  console.log(event);
   let response = await fetch(event.target.action, {
     method: event.target.method,
     body: new URLSearchParams(new FormData(event.target))
   });
-  console.log(response);
   if (response.ok) {
     window.location.href = response.url;
   } else {
     let text = await response.text();
-    render(html`<${App} error=${text}></${App}>`, document.body);
+    document.getElementById("errorText").innerHTML = text;
   }
 }
 
-function App(props) {
-  let error = "";
-  if (props && props.error) {
-    error = props.error;
-  }
+function App() {
   return html`
     <form id="loginForm" action="/kids/login" method="post" class="container">
       <div class="row my-3">
@@ -37,7 +31,7 @@ function App(props) {
         <button type="submit" class="btn btn-primary">Login</button>
       </div>
       <div class="row my-3">
-        <p class="text-danger">${error}</p>
+        <p id="errorText" class="text-danger"></p>
       </div>
     </form>
   `;

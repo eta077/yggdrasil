@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
     heimdall_server.start();
 
-    let kids_server = Arc::new(Mutex::new(KidsServer {}));
+    let kids_server = Arc::new(Mutex::new(KidsServer::new()));
     let kids_key = Key::generate();
 
     let router = Router::new()
@@ -64,6 +64,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             get(move |upgrade| heimdall_ws(upgrade, heimdall_tx)),
         )
         .route("/kids", get(kids_get))
+        .route("/kids.mjs", get(kids_script_get))
         .route(
             "/kids/login",
             get(kids_login_get).post({
@@ -72,6 +73,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }),
         )
         .route("/kids/login.mjs", get(kids_login_script_get))
+        .route(
+            "/kids/lessons",
+            get({
+                let shared_state = Arc::clone(&kids_server);
+                || kids_lessons(shared_state)
+            }),
+        )
         .with_state(kids_key);
 
     let server = Server::bind(&"0.0.0.0:7032".parse()?).serve(router.into_make_service());
@@ -180,6 +188,15 @@ async fn kids_get(jar: PrivateCookieJar) -> (StatusCode, Html<String>) {
     }
 }
 
+async fn kids_script_get() -> Response<String> {
+    let script = get_file("kids/kids.mjs").await;
+
+    Response::builder()
+        .header("content-type", "application/javascript;charset=utf-8")
+        .body(script)
+        .unwrap()
+}
+
 async fn kids_login_get() -> Html<String> {
     let markup = get_file("kids/login.html").await;
 
@@ -215,7 +232,18 @@ async fn kids_login(
     Ok((new_jar, Redirect::to("/kids")))
 }
 
+async fn kids_lessons(kids_server: Arc<Mutex<KidsServer>>) -> Result<String, StatusCode> {
+    let lessons = kids_server.lock().await.get_lessons().map_err(|e| {
+        eprintln!("{e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let payload =
+        serde_json::to_string(&lessons).expect("kids_lessons could not serialize lessons");
+
+    Ok(payload)
+}
+
 // TODO:
 // key loading
 // encrypt email/password before sending?
-//
+// date propogation
