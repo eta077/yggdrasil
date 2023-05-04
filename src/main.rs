@@ -64,6 +64,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             get(move |upgrade| heimdall_ws(upgrade, heimdall_tx)),
         )
         .route("/kids", get(kids_get))
+        .route("/kids/kids.css", get(kids_style_get))
         .route("/kids.mjs", get(kids_script_get))
         .route(
             "/kids/login",
@@ -186,6 +187,15 @@ async fn kids_get(jar: PrivateCookieJar) -> (StatusCode, Html<String>) {
 
         (StatusCode::UNAUTHORIZED, Html(markup))
     }
+}
+
+async fn kids_style_get() -> Response<String> {
+    let markup = get_file("kids/kids.css").await;
+
+    Response::builder()
+        .header("content-type", "text/css;charset=utf-8")
+        .body(markup)
+        .unwrap()
 }
 
 async fn kids_script_get() -> Response<String> {

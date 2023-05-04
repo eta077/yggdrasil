@@ -1,0 +1,7 @@
+body {
+  user-select: none;
+}
+
+.dragging {
+  opacity: 0.5;
+}

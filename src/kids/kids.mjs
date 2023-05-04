@@ -23,7 +23,17 @@ function onLessonClick(lessonInfo) {
   lesson.classList.remove("border-1");
   lesson.classList.add("border-3");
   let parts = selectedLesson.children.namedItem("parts");
-  parts.innerHTML = LessonPartsNode(lessonInfo.available_parts);
+  render(html`<${LessonPartsNode} parts=${lessonInfo.available_parts}></${LessonPartsNode}`, parts);
+}
+
+function onPartDragStart(event) {
+  console.log("starting drag");
+  event.target.classList.add("dragging");
+}
+
+function onPartDragEnd(event) {
+  console.log("ending drag");
+  event.target.classList.remove("dragging");
 }
 
 function App(props) {
@@ -50,9 +60,9 @@ function LessonNode(lesson) {
 
 function LessonPartsNode(parts) {
   return html`
-    ${parts.map((part) => {
+    ${parts.parts.map((part) => {
       return html`
-        ${part.name}
+        <p draggable="true" class="border border-light" onDragStart="${(event) => onPartDragStart(event)}" onDragEnd="${(event) => onPartDragEnd(event)}">${part.name}</p>
       `;
     })}
   `;
