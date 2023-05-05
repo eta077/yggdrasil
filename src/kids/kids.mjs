@@ -4,6 +4,7 @@ import htm from "https://unpkg.com/htm?module";
 const html = htm.bind(h);
 
 let selectedLesson = null;
+let draggedPart = null;
 
 function onLessonClick(lessonInfo) {
   let target = document.getElementById("container_" + lessonInfo.name);
@@ -27,13 +28,44 @@ function onLessonClick(lessonInfo) {
 }
 
 function onPartDragStart(event) {
-  console.log("starting drag");
-  event.target.classList.add("dragging");
+  draggedPart = event.target;
+  draggedPart.classList.add("dragging");
 }
 
 function onPartDragEnd(event) {
-  console.log("ending drag");
+  console.log("onPartDragEnd");
   event.target.classList.remove("dragging");
+}
+
+function onLessonDragOver(event) {
+  event.preventDefault();
+}
+
+function onLessonDragEnter(event) {
+  
+}
+
+function onLessonDrop(event, lessonInfo) {
+  console.log("onLessonDrop");
+  event.preventDefault();
+
+  let avail_parts = lessonInfo.available_parts;
+  for (var i = 0; i < avail_parts.length; i++) {
+    if (avail_parts[i].name == draggedPart.innerHTML) {
+      avail_parts.splice(i, 1);
+      break;
+    }
+  }
+
+  fetch("/kids/set-lesson", {
+    method: "POST",
+    body: JSON.stringify(lessonInfo),
+    headers: {
+      "Content-type": "application/json; charset=utf-8"
+    }
+  });
+
+  event.target.appendChild(draggedPart);
 }
 
 function App(props) {
@@ -51,7 +83,7 @@ function LessonNode(lesson) {
     <div id="container_${lesson.name}" class="row">
       <div id="parts_${lesson.name}" name="parts" class="col-3">
       </div>
-      <div id="lesson_${lesson.name}" name="lesson" class="col-9 border border-primary border-1" onClick="${(event) => onLessonClick(lesson)}">
+      <div id="lesson_${lesson.name}" name="lesson" class="col-9 border border-primary border-1" onClick="${(event) => onLessonClick(lesson)}" onDragOver="${(event) => onLessonDragOver(event)}" onDragEnter="${(event) => onLessonDragEnter(event)}" onDrop="${(event) => onLessonDrop(event, lesson)}">
         ${lesson.name}
       </div>
     </div>

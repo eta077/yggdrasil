@@ -1,13 +1,13 @@
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::WebSocketUpgrade;
+use axum::extract::{Json, WebSocketUpgrade};
 use axum::http::{Response, StatusCode};
-use axum::response::{Form, Html, IntoResponse, Redirect};
-use axum::routing::get;
+use axum::response::*;
+use axum::routing::{get, post};
 use axum::{Router, Server};
 
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 
-use christpoint_kids::{KidsServer, LoginParams};
+use christpoint_kids::{KidsServer, Lesson, LoginParams};
 
 use chrono::{NaiveDate, Utc};
 
@@ -79,6 +79,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             get({
                 let shared_state = Arc::clone(&kids_server);
                 || kids_lessons(shared_state)
+            }),
+        )
+        .route(
+            "/kids/set-lesson",
+            post({
+                let shared_state = Arc::clone(&kids_server);
+                move |params| kids_set_lesson(shared_state, params)
             }),
         )
         .with_state(kids_key);
@@ -251,6 +258,18 @@ async fn kids_lessons(kids_server: Arc<Mutex<KidsServer>>) -> Result<String, Sta
         serde_json::to_string(&lessons).expect("kids_lessons could not serialize lessons");
 
     Ok(payload)
+}
+
+async fn kids_set_lesson(
+    kids_server: Arc<Mutex<KidsServer>>,
+    Json(lesson): Json<Lesson>,
+) -> Result<(), StatusCode> {
+    kids_server
+        .lock()
+        .await
+        .set_lesson(lesson)
+        .map_err(|e| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(())
 }
 
 // TODO:
