@@ -103,25 +103,32 @@ async fn get_file(path: &str) -> String {
     tokio::fs::read_to_string(real_path).await.unwrap()
 }
 
-#[cfg(feature = "production")]
-async fn get_file(path: &str) -> String {
-    include_str!(path)
-}
-
 async fn root_get() -> Html<String> {
+    #[cfg(feature = "debug")]
     let markup = get_file("index.html").await;
+
+    #[cfg(feature = "production")]
+    let markup = include_str!("index.html").to_owned();
 
     Html(markup)
 }
 
 async fn earendel_get() -> Html<String> {
+    #[cfg(feature = "debug")]
     let markup = get_file("earendel/earendel.html").await;
+
+    #[cfg(feature = "production")]
+    let markup = include_str!("earendel/earendel.html").to_owned();
 
     Html(markup)
 }
 
 async fn earendel_script_get() -> Response<String> {
+    #[cfg(feature = "debug")]
     let script = get_file("earendel/earendel.mjs").await;
+
+    #[cfg(feature = "production")]
+    let script = include_str!("earendel/earendel.mjs").to_owned();
 
     Response::builder()
         .header("content-type", "application/javascript;charset=utf-8")
@@ -150,13 +157,21 @@ async fn earendel_apod(
 }
 
 async fn heimdall_get() -> Html<String> {
+    #[cfg(feature = "debug")]
     let markup = get_file("heimdall/heimdall.html").await;
+
+    #[cfg(feature = "production")]
+    let markup = include_str!("heimdall/heimdall.html").to_owned();
 
     Html(markup)
 }
 
 async fn heimdall_script_get() -> Response<String> {
+    #[cfg(feature = "debug")]
     let script = get_file("heimdall/heimdall.mjs").await;
+
+    #[cfg(feature = "production")]
+    let script = include_str!("heimdall/heimdall.mjs").to_owned();
 
     Response::builder()
         .header("content-type", "application/javascript;charset=utf-8")
@@ -187,17 +202,30 @@ async fn heimdall_stream(mut ws: WebSocket, sender: broadcast::Sender<HeimdallSt
 
 async fn kids_get(jar: PrivateCookieJar) -> (StatusCode, Html<String>) {
     if let Some(id) = jar.get("userId") {
+        #[cfg(feature = "debug")]
         let markup = get_file("kids/kids.html").await;
+
+        #[cfg(feature = "production")]
+        let markup = include_str!("kids/kids.html").to_owned();
+
         (StatusCode::OK, Html(markup))
     } else {
+        #[cfg(feature = "debug")]
         let markup = get_file("kids/unauth.html").await;
+
+        #[cfg(feature = "production")]
+        let markup = include_str!("kids/unauth.html").to_owned();
 
         (StatusCode::UNAUTHORIZED, Html(markup))
     }
 }
 
 async fn kids_style_get() -> Response<String> {
+    #[cfg(feature = "debug")]
     let markup = get_file("kids/kids.css").await;
+
+    #[cfg(feature = "production")]
+    let markup = include_str!("kids/kids.css").to_owned();
 
     Response::builder()
         .header("content-type", "text/css;charset=utf-8")
@@ -206,7 +234,11 @@ async fn kids_style_get() -> Response<String> {
 }
 
 async fn kids_script_get() -> Response<String> {
+    #[cfg(feature = "debug")]
     let script = get_file("kids/kids.mjs").await;
+
+    #[cfg(feature = "production")]
+    let script = include_str!("kids/kids.mjs").to_owned();
 
     Response::builder()
         .header("content-type", "application/javascript;charset=utf-8")
@@ -215,13 +247,21 @@ async fn kids_script_get() -> Response<String> {
 }
 
 async fn kids_login_get() -> Html<String> {
+    #[cfg(feature = "debug")]
     let markup = get_file("kids/login.html").await;
+
+    #[cfg(feature = "production")]
+    let markup = include_str!("kids/login.html").to_owned();
 
     Html(markup)
 }
 
 async fn kids_login_script_get() -> Response<String> {
+    #[cfg(feature = "debug")]
     let script = get_file("kids/login.mjs").await;
+
+    #[cfg(feature = "production")]
+    let script = include_str!("kids/login.mjs").to_owned();
 
     Response::builder()
         .header("content-type", "application/javascript;charset=utf-8")
