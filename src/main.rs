@@ -7,11 +7,7 @@ use axum::{Router, Server};
 
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 
-use christpoint_kids::{KidsServer, Lesson, LoginParams};
-
-use chrono::{NaiveDate, Utc};
-
-use earendel::EarendelState;
+use earendel::EarendelServer;
 
 use heimdall::{HeimdallServer, HeimdallState};
 
@@ -28,7 +24,7 @@ use std::sync::Arc;
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt().init();
 
-    let earendel_state = Arc::new(Mutex::new(None));
+    let earendel_server = Arc::new(Mutex::new(EarendelServer::new()));
 
     let (heimdall_tx, _) = broadcast::channel::<HeimdallState>(1);
 
@@ -43,9 +39,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
     heimdall_server.start();
 
-    let kids_server = Arc::new(Mutex::new(KidsServer::new()));
-    let kids_key = Key::generate();
-
     let router = Router::new()
         .route("/", get(root_get))
         .route("/earendel", get(earendel_get))
@@ -53,8 +46,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route(
             "/earendel/apod",
             get({
-                let shared_state = Arc::clone(&earendel_state);
+                let shared_state = Arc::clone(&earendel_server);
                 move || earendel_apod(shared_state)
+            }),
+        )
+        .route(
+            "/earendel/apod-fits",
+            get({
+                let shared_state = Arc::clone(&earendel_server);
+                move || earendel_apod_fits(shared_state)
             }),
         )
         .route("/heimdall", get(heimdall_get))
@@ -62,33 +62,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route(
             "/ws/heimdall",
             get(move |upgrade| heimdall_ws(upgrade, heimdall_tx)),
-        )
-        .route("/kids", get(kids_get))
-        .route("/kids/kids.css", get(kids_style_get))
-        .route("/kids.mjs", get(kids_script_get))
-        .route(
-            "/kids/login",
-            get(kids_login_get).post({
-                let shared_state = Arc::clone(&kids_server);
-                move |jar, params| kids_login(shared_state, jar, params)
-            }),
-        )
-        .route("/kids/login.mjs", get(kids_login_script_get))
-        .route(
-            "/kids/lessons",
-            get({
-                let shared_state = Arc::clone(&kids_server);
-                || kids_lessons(shared_state)
-            }),
-        )
-        .route(
-            "/kids/set-lesson",
-            post({
-                let shared_state = Arc::clone(&kids_server);
-                move |params| kids_set_lesson(shared_state, params)
-            }),
-        )
-        .with_state(kids_key);
+        );
 
     let server = Server::bind(&"0.0.0.0:7032".parse()?).serve(router.into_make_service());
     server.await?;
@@ -136,24 +110,23 @@ async fn earendel_script_get() -> Response<String> {
         .unwrap()
 }
 
-async fn earendel_apod(
-    state: Arc<Mutex<Option<(NaiveDate, EarendelState)>>>,
-) -> Result<String, StatusCode> {
-    let mut cached_state = state.lock().await;
-
-    // cache is invalidated after UTC date changes
-    let today = Utc::now().date_naive();
-    let new_state = match cached_state.as_ref() {
-        Some((date, apod)) if date == &today => apod.to_owned(),
-        Some(_) | None => earendel::get_apod_image()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-    };
-    let payload =
-        serde_json::to_string(&new_state).expect("earendel_apod could not serialize state");
-    *cached_state = Some((today, new_state));
+async fn earendel_apod(server: Arc<Mutex<EarendelServer>>) -> Result<String, StatusCode> {
+    let state = server.lock().await.get_apod_image().await.map_err(|e| {
+        eprintln!("{e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let payload = serde_json::to_string(&state).expect("earendel_apod could not serialize state");
 
     Ok(payload)
+}
+
+async fn earendel_apod_fits(server: Arc<Mutex<EarendelServer>>) -> Result<String, StatusCode> {
+    server.lock().await.get_fits_for_apod().await.map_err(|e| {
+        eprintln!("{e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    Ok(String::from("success"))
 }
 
 async fn heimdall_get() -> Html<String> {
@@ -199,120 +172,3 @@ async fn heimdall_stream(mut ws: WebSocket, sender: broadcast::Sender<HeimdallSt
         }
     }
 }
-
-async fn kids_get(jar: PrivateCookieJar) -> (StatusCode, Html<String>) {
-    if let Some(id) = jar.get("userId") {
-        #[cfg(feature = "debug")]
-        let markup = get_file("kids/kids.html").await;
-
-        #[cfg(feature = "production")]
-        let markup = include_str!("kids/kids.html").to_owned();
-
-        (StatusCode::OK, Html(markup))
-    } else {
-        #[cfg(feature = "debug")]
-        let markup = get_file("kids/unauth.html").await;
-
-        #[cfg(feature = "production")]
-        let markup = include_str!("kids/unauth.html").to_owned();
-
-        (StatusCode::UNAUTHORIZED, Html(markup))
-    }
-}
-
-async fn kids_style_get() -> Response<String> {
-    #[cfg(feature = "debug")]
-    let markup = get_file("kids/kids.css").await;
-
-    #[cfg(feature = "production")]
-    let markup = include_str!("kids/kids.css").to_owned();
-
-    Response::builder()
-        .header("content-type", "text/css;charset=utf-8")
-        .body(markup)
-        .unwrap()
-}
-
-async fn kids_script_get() -> Response<String> {
-    #[cfg(feature = "debug")]
-    let script = get_file("kids/kids.mjs").await;
-
-    #[cfg(feature = "production")]
-    let script = include_str!("kids/kids.mjs").to_owned();
-
-    Response::builder()
-        .header("content-type", "application/javascript;charset=utf-8")
-        .body(script)
-        .unwrap()
-}
-
-async fn kids_login_get() -> Html<String> {
-    #[cfg(feature = "debug")]
-    let markup = get_file("kids/login.html").await;
-
-    #[cfg(feature = "production")]
-    let markup = include_str!("kids/login.html").to_owned();
-
-    Html(markup)
-}
-
-async fn kids_login_script_get() -> Response<String> {
-    #[cfg(feature = "debug")]
-    let script = get_file("kids/login.mjs").await;
-
-    #[cfg(feature = "production")]
-    let script = include_str!("kids/login.mjs").to_owned();
-
-    Response::builder()
-        .header("content-type", "application/javascript;charset=utf-8")
-        .body(script)
-        .unwrap()
-}
-
-async fn kids_login(
-    kids_server: Arc<Mutex<KidsServer>>,
-    jar: PrivateCookieJar,
-    Form(params): Form<LoginParams>,
-) -> Result<(PrivateCookieJar, Redirect), (StatusCode, String)> {
-    let user = kids_server.lock().await.login(params).map_err(|e| {
-        let text = match e {
-            christpoint_kids::LoginError::InternalError => {
-                String::from("An error occurred during the login process")
-            }
-            christpoint_kids::LoginError::InvalidCredentials => {
-                String::from("Invalid credentials, please try again.")
-            }
-        };
-        (StatusCode::BAD_REQUEST, text)
-    })?;
-    let new_jar = jar.add(Cookie::new("userId", user.id.to_owned()));
-    Ok((new_jar, Redirect::to("/kids")))
-}
-
-async fn kids_lessons(kids_server: Arc<Mutex<KidsServer>>) -> Result<String, StatusCode> {
-    let lessons = kids_server.lock().await.get_lessons().map_err(|e| {
-        eprintln!("{e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    let payload =
-        serde_json::to_string(&lessons).expect("kids_lessons could not serialize lessons");
-
-    Ok(payload)
-}
-
-async fn kids_set_lesson(
-    kids_server: Arc<Mutex<KidsServer>>,
-    Json(lesson): Json<Lesson>,
-) -> Result<(), StatusCode> {
-    kids_server
-        .lock()
-        .await
-        .set_lesson(lesson)
-        .map_err(|e| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(())
-}
-
-// TODO:
-// key loading
-// encrypt email/password before sending?
-// date propogation
