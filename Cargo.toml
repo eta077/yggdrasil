@@ -9,17 +9,19 @@ exclude = [ ".github" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[patch."https://github.com/eta077/earendel"]
-earendel = { path = "../earendel" }
+# [patch."https://github.com/eta077/earendel"]
+# earendel = { path = "../earendel" }
 
-#[patch."https://github.com/eta077/heimdall"]
-#heimdall = { path = "../heimdall" }
+# [patch."https://github.com/eta077/heimdall"]
+# heimdall = { path = "../heimdall" }
 
 [dependencies]
+ammonia = "3.3.0"
 axum = { version = "0.6.12", features = ["json", "ws"] }
 axum-extra = { version = "0.7.4", features = ["cookie", "cookie-private"]}
 earendel = { version = "*", git = "https://github.com/eta077/earendel.git" }
 heimdall = { version = "*", git = "https://github.com/eta077/heimdall.git" }
+pulldown-cmark = { version = "0.9.3", default-features = false, features = ["simd"] }
 serde_json = "1.0.96"
 tokio = { version = "1.26.0", features = ["full"] }
 tracing = "0.1.37"

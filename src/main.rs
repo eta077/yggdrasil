@@ -11,6 +11,9 @@ use earendel::EarendelServer;
 
 use heimdall::{HeimdallServer, HeimdallState};
 
+use pulldown_cmark::html::push_html;
+use pulldown_cmark::Parser;
+
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 use tokio::task;
@@ -41,6 +44,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let router = Router::new()
         .route("/", get(root_get))
+        .route("/blog", get(blog_get))
+        .route("/blog.mjs", get(blog_script_get))
+        .route("/blog/content", get(blog_content))
         .route("/earendel", get(earendel_get))
         .route("/earendel.mjs", get(earendel_script_get))
         .route(
@@ -85,6 +91,38 @@ async fn root_get() -> Html<String> {
     let markup = include_str!("index.html").to_owned();
 
     Html(markup)
+}
+
+async fn blog_get() -> Html<String> {
+    #[cfg(feature = "debug")]
+    let markup = get_file("blog/blog.html").await;
+
+    #[cfg(feature = "production")]
+    let markup = include_str!("blog/blog.html").to_owned();
+
+    Html(markup)
+}
+
+async fn blog_script_get() -> Response<String> {
+    #[cfg(feature = "debug")]
+    let script = get_file("blog/blog.mjs").await;
+
+    #[cfg(feature = "production")]
+    let script = include_str!("blog/blog.mjs").to_owned();
+
+    Response::builder()
+        .header("content-type", "application/javascript;charset=utf-8")
+        .body(script)
+        .unwrap()
+}
+
+async fn blog_content() -> String {
+    let path = String::from("src/blog/content/20230529.md");
+    let markdown = tokio::fs::read_to_string(path).await.unwrap();
+    let parser = Parser::new(&markdown);
+    let mut markup = String::new();
+    push_html(&mut markup, parser);
+    ammonia::clean(&markup)
 }
 
 async fn earendel_get() -> Html<String> {
