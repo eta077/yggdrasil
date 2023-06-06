@@ -1,11 +1,9 @@
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Json, WebSocketUpgrade};
+use axum::extract::{Query, WebSocketUpgrade};
 use axum::http::{Response, StatusCode};
 use axum::response::*;
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::{Router, Server};
-
-use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 
 use earendel::EarendelServer;
 
@@ -14,6 +12,8 @@ use heimdall::{HeimdallServer, HeimdallState};
 use pulldown_cmark::html::push_html;
 use pulldown_cmark::Parser;
 
+use serde::{Deserialize, Serialize};
+
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 use tokio::task;
@@ -21,7 +21,20 @@ use tokio::task;
 use tracing::trace;
 
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::Arc;
+
+#[derive(Debug, Serialize)]
+struct BlogContent {
+    markup: String,
+    previous: Option<String>,
+    next: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BlogParams {
+    selection: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -116,13 +129,96 @@ async fn blog_script_get() -> Response<String> {
         .unwrap()
 }
 
-async fn blog_content() -> String {
-    let path = String::from("src/blog/content/20230529.md");
-    let markdown = tokio::fs::read_to_string(path).await.unwrap();
+async fn blog_content(params: Option<Query<BlogParams>>) -> Result<String, StatusCode> {
+    let blog_dir = tokio::task::spawn_blocking(get_blog_dir)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let blog_count = blog_dir.len();
+    if blog_count == 0 {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    let (file_path, previous, next) = match params {
+        Some(params) => match blog_dir.iter().position(|path| {
+            path.to_str()
+                .unwrap_or_default()
+                .contains(&params.0.selection)
+        }) {
+            Some(index) => {
+                let previous = if index > 0 {
+                    Some(
+                        blog_dir[index - 1]
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_str()
+                            .unwrap_or_default()
+                            .to_owned(),
+                    )
+                } else {
+                    None
+                };
+                let next = if index < blog_count - 1 {
+                    Some(
+                        blog_dir[index + 1]
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_str()
+                            .unwrap_or_default()
+                            .to_owned(),
+                    )
+                } else {
+                    None
+                };
+                (blog_dir[index].to_owned(), previous, next)
+            }
+            None => return Err(StatusCode::NOT_FOUND),
+        },
+        None => {
+            let previous = if blog_count > 1 {
+                Some(
+                    blog_dir[blog_count - 2]
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                )
+            } else {
+                None
+            };
+            (blog_dir[blog_count - 1].to_owned(), previous, None)
+        }
+    };
+
+    let markdown = tokio::fs::read_to_string(file_path).await.unwrap();
     let parser = Parser::new(&markdown);
     let mut markup = String::new();
     push_html(&mut markup, parser);
-    ammonia::clean(&markup)
+    let clean_markup = ammonia::clean(&markup);
+
+    let blog_content = BlogContent {
+        markup: clean_markup,
+        previous,
+        next,
+    };
+
+    let payload =
+        serde_json::to_string(&blog_content).expect("blog_content could not serialize data");
+
+    Ok(payload)
+}
+
+fn get_blog_dir() -> Result<Vec<PathBuf>, String> {
+    let mut files = std::fs::read_dir("blog/content")
+        .map_err(|_| String::from("could not read blog directory"))?
+        .filter(|res| res.is_ok())
+        .map(|e| e.unwrap().path())
+        .collect::<Vec<PathBuf>>();
+
+    files.sort();
+
+    Ok(files)
 }
 
 async fn earendel_get() -> Html<String> {
