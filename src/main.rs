@@ -1,5 +1,5 @@
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Query, WebSocketUpgrade};
+use axum::extract::{Path, Query, WebSocketUpgrade};
 use axum::http::{Response, StatusCode};
 use axum::response::*;
 use axum::routing::get;
@@ -18,7 +18,9 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 use tokio::task;
 
-use tracing::trace;
+use tower_http::trace::TraceLayer;
+
+use tracing::*;
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -38,13 +40,13 @@ struct BlogParams {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     let earendel_server = Arc::new(Mutex::new(EarendelServer::new()));
 
     let (heimdall_tx, _) = broadcast::channel::<HeimdallState>(1);
 
-    let heimdall_server = HeimdallServer::new();
+    let mut heimdall_server = HeimdallServer::new();
     let heimdall_receiver = heimdall_server.add_listener();
     let heimdall_sender = heimdall_tx.clone();
     task::spawn_blocking(move || loop {
@@ -81,7 +83,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route(
             "/ws/heimdall",
             get(move |upgrade| heimdall_ws(upgrade, heimdall_tx)),
-        );
+        )
+        .route("/heimdall/assets/:image", get(heimdall_image_get))
+        .layer(TraceLayer::new_for_http());
 
     let server = Server::bind(&"0.0.0.0:7032".parse()?).serve(router.into_make_service());
     server.await?;
@@ -246,7 +250,7 @@ async fn earendel_script_get() -> Response<String> {
 
 async fn earendel_apod(server: Arc<Mutex<EarendelServer>>) -> Result<String, StatusCode> {
     let state = server.lock().await.get_apod_image().await.map_err(|e| {
-        eprintln!("{e}");
+        error!("{e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let payload = serde_json::to_string(&state).expect("earendel_apod could not serialize state");
@@ -256,7 +260,7 @@ async fn earendel_apod(server: Arc<Mutex<EarendelServer>>) -> Result<String, Sta
 
 async fn earendel_apod_fits(server: Arc<Mutex<EarendelServer>>) -> Result<String, StatusCode> {
     server.lock().await.get_fits_for_apod().await.map_err(|e| {
-        eprintln!("{e}");
+        error!("{e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -305,4 +309,17 @@ async fn heimdall_stream(mut ws: WebSocket, sender: broadcast::Sender<HeimdallSt
             break;
         }
     }
+}
+
+async fn heimdall_image_get(Path(image): Path<String>) -> Result<Vec<u8>, StatusCode> {
+    let mut path = if cfg!(feature = "debug") {
+        String::from("src/")
+    } else {
+        String::new()
+    };
+    path = path + "assets/heimdall/" + &image;
+    tokio::fs::read(path).await.map_err(|e| {
+        error!("{e}");
+        StatusCode::NOT_FOUND
+    })
 }
