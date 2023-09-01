@@ -1,5 +1,5 @@
-import {h, render} from "https://unpkg.com/preact?module";
-import htm from "https://unpkg.com/htm?module";
+import {h, render} from "https://esm.sh/preact@5.3.1";
+import htm from "https://esm.sh/htm@3.1.1";
 
 const html = htm.bind(h);
 

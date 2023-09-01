@@ -1,11 +1,11 @@
-import {h, render} from "https://unpkg.com/preact?module";
-import htm from "https://unpkg.com/htm?module";
+import { h, render } from "https://esm.sh/preact@5.3.1";
+import htm from "https://esm.sh/htm@3.1.1";
 
 const html = htm.bind(h);
 
 function Schematic(props) {
   return html`
-    <div class="container-fluid">
+    <div id="schematic" class="container-fluid">
       <div class="row">
         <div class="col">
           ${props.devices.filter((device) => device.connection == "Wireless").map((device) => {
@@ -42,7 +42,7 @@ function DeviceNode(device) {
           + "<pre>CPU: </pre>"
         + "</div>"
         + "<div class=\"col\">" 
-          + "<pre>" + device.cpu_usage + "</pre>"
+          + "<pre id=" + device.name + "-cpu-val>" + device.cpu_usage + "</pre>"
         + "</div>"
       + "</div>"
       + "<div class=\"row\">"
@@ -50,11 +50,11 @@ function DeviceNode(device) {
           + "<pre>Mem: </pre>"
         + "</div>"
         + "<div class=\"col\">"
-          + "<pre>" + device.cpu_usage + "</pre>"
+          + "<pre id=" + device.name + "-mem-val>" + device.mem_usage + "</pre>"
       + " </div> </div>";
   }
   return html`
-    <div class="container text-center" data-bs-toggle="popover" data-bs-title="${popup_title}" data-bs-content="${popup_content}">
+    <div class="container text-center" data-bs-toggle="popover" title=${popup_title} data-bs-content=${popup_content}>
         <img class="img-fluid" src=${img_url}></img>
         <pre>${device.name}</pre>
     </div>
@@ -66,12 +66,27 @@ let url = new URL("/ws/heimdall", window.location.href);
 url.protocol = url.protocol.replace("http", "ws");
 let ws = new WebSocket(url.href);
 ws.onmessage = (event) => {
-  if (!rendered) {
-    let json = JSON.parse(event.data);
+  let json = JSON.parse(event.data);
+  if (rendered) {
+    let target = document.getElementById("schematic");
+    render(html`<${Schematic} devices=${json}></${Schematic}>`, document.body, target);
+    
+    for (let device of json) {
+      let cpu_label = document.getElementById(device.name + "-cpu-val");
+      if (cpu_label != null) {
+        cpu_label.innerHTML = device.cpu_usage;
+      }
+      let mem_label = document.getElementById(device.name + "-mem-val");
+      if (mem_label != null) {
+        mem_label.innerHTML = device.mem_usage;
+      }
+    }
+  } else {
     render(html`<${Schematic} devices=${json}></${Schematic}>`, document.body);
-    rendered = true;
     const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
-    [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl, {html: true}));
+    [...popoverTriggerList].map(popoverTriggerEl => {
+      bootstrap.Popover.getOrCreateInstance(popoverTriggerEl, { html: true });
+    });
+    rendered = true;
   }
 }
-
