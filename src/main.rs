@@ -253,18 +253,28 @@ async fn earendel_apod(server: Arc<Mutex<EarendelServer>>) -> Result<String, Sta
         error!("{e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let payload = serde_json::to_string(&state).expect("earendel_apod could not serialize state");
+    let payload = serde_json::to_string(&state).expect("earendel_apod could not serialize APOD state");
 
     Ok(payload)
 }
 
 async fn earendel_apod_fits(server: Arc<Mutex<EarendelServer>>) -> Result<String, StatusCode> {
-    server.lock().await.get_fits_for_apod().await.map_err(|e| {
-        error!("{e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let state = server
+        .lock()
+        .await
+        .get_fits_for_apod(1)
+        .await
+        .map_err(|e| {
+            error!("{e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    Ok(String::from("success"))
+    info!("FITS result: {state:?}");
+
+    let payload =
+        serde_json::to_string(&state).expect("earendel_apod_fits could not serialize FITS state");
+
+    Ok(String::from(payload))
 }
 
 async fn heimdall_get() -> Html<String> {
