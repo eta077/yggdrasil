@@ -1,22 +1,32 @@
-import {h, render} from "https://esm.sh/preact@5.3.1";
+import { h, render } from "https://esm.sh/preact@5.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
 
 const html = htm.bind(h);
 
 async function onFindFitsClicked(event) {
   console.log("event: " + event);
+  
+  let fits_div = document.getElementById("fits-div");
+  let fits_btn = fits_div.children.namedItem("find-fits-btn");
+  fits_btn.classList.add("disabled");
+  let fits_lbl = fits_div.children.namedItem("find-fits-lbl");
+  fits_lbl.innerHTML = "Loading FITS list...";
+
   let response = await fetch("/earendel/apod-fits");
   if (!response.ok) {
-    return;
+    console.log("FITS response was error: " + response);
+    fits_lbl.innerHTML = "An error occurred while finding FITS files.";
+    fits_btn.classList.remove("disabled");
+    return;  
   }
   let json = await response.json();
   console.log("response: " + json);
-  let fits_div = document.getElementById("fits-div");
+  fits_div.innerHTML = "";
   render(html`<${FitsList} state=${json}></${FitsList}>`, fits_div);
 }
 
 function App(props) {
-  let blob = new Blob([new Uint8Array(props.state.img).buffer], {type: "image/png"});
+  let blob = new Blob([new Uint8Array(props.state.img).buffer], { type: "image/png" });
   let img_url = URL.createObjectURL(blob);
   let copyright_text = "";
   if (props.state.copyright) {
@@ -38,6 +48,7 @@ function App(props) {
         </div>
         <div id="fits-div" class="col">
           <button id="find-fits-btn" class="btn btn-primary" onClick=${(event) => onFindFitsClicked(event)}>Find FITS files</button>
+          <p id="find-fits-lbl"></p>
         </div>
       </div>
     </div>
@@ -54,9 +65,11 @@ function FitsList(props) {
   `;
 }
 
+render(html`<p>Loading...</p>`, document.body);
 let response = await fetch("/earendel/apod");
-if (response.status == 200) {
+if (response.ok) {
   let json = await response.json();
+  document.body.innerHTML = "";
   render(html`<${App} state=${json}></${App}>`, document.body);
 }
 
